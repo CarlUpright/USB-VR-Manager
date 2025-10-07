@@ -132,6 +132,9 @@ class USBVRManager:
         # Onglet 5: Sync folder
         self.create_sync_tab(notebook)
         
+        # Onglet 6: Enable Disable App
+        self.create_enable_disable_tab(notebook)
+        
         # Zone de logs en bas
         log_frame = tk.Frame(self.root)
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -360,6 +363,38 @@ class USBVRManager:
         
         # Bouton de synchronisation
         tk.Button(sync_frame, text="Start sync", command=self.start_sync).pack(pady=10)
+        
+    def create_enable_disable_tab(self, notebook):
+        """Crée l'onglet Enable/Disable App"""
+        frame = ttk.Frame(notebook)
+        notebook.add(frame, text="Enable / Disable App")
+
+        # --- Sélection du device ---
+        device_frame = tk.Frame(frame)
+        device_frame.pack(fill="x", padx=10, pady=5)
+        
+        tk.Label(device_frame, text="Select device:").pack(anchor="w")
+        self.ed_device_var = tk.StringVar()
+        self.ed_device_combo = ttk.Combobox(device_frame, textvariable=self.ed_device_var, state="readonly")
+        self.ed_device_combo.pack(fill="x", pady=5)
+        
+        tk.Button(device_frame, text="Refresh devices", command=self.refresh_ed_devices).pack(pady=5)
+
+        # --- Liste des apps ---
+        tk.Label(frame, text="Installed packages:").pack(anchor="w", padx=10)
+        self.ed_listbox = tk.Listbox(frame, height=12)
+        scrollbar = tk.Scrollbar(frame, orient="vertical", command=self.ed_listbox.yview)
+        self.ed_listbox.configure(yscrollcommand=scrollbar.set)
+        self.ed_listbox.pack(side="left", fill="both", expand=True, padx=10, pady=5)
+        scrollbar.pack(side="right", fill="y")
+
+        # --- Boutons d'action ---
+        btn_frame = tk.Frame(frame)
+        btn_frame.pack(fill="x", pady=10)
+        tk.Button(btn_frame, text="Load packages", command=self.load_ed_packages).pack(side="left", padx=10)
+        tk.Button(btn_frame, text="Disable selected app", bg="orange", command=self.disable_selected_app).pack(side="left", padx=10)
+        tk.Button(btn_frame, text="Enable selected app", bg="lightgreen", command=self.enable_selected_app).pack(side="left", padx=10)
+
     
     def scan_devices(self):
         """Scanne les devices connectés"""
@@ -1083,7 +1118,69 @@ class USBVRManager:
         # Simplification - dans la vraie version il faudrait un dialog
         # Pour cette démo, on va écraser par défaut
         return "overwrite"
-    
+    def refresh_ed_devices(self):
+        """Rafraîchit la liste des devices pour l'onglet Enable/Disable"""
+        stdout, stderr, returncode = self.run_adb_command(["devices"])
+        devices = []
+        if returncode == 0:
+            lines = stdout.strip().split('\n')[1:]
+            for line in lines:
+                if '\tdevice' in line:
+                    device_id = line.split('\t')[0]
+                    nickname = self.devices.get(device_id, {}).get("nickname", device_id)
+                    devices.append(f"{nickname} ({device_id})")
+        self.ed_device_combo["values"] = devices
+        if devices:
+            self.ed_device_combo.current(0)
+
+    def load_ed_packages(self):
+        """Charge la liste des apps installées sur le casque"""
+        if not self.ed_device_var.get():
+            messagebox.showwarning("Warning", "Select a device first")
+            return
+        device_id = self.ed_device_var.get().split('(')[1].split(')')[0]
+        self.log_message(f"Loading packages for {device_id}...")
+        stdout, stderr, returncode = self.run_adb_command(["shell", "pm", "list", "packages"], device_id)
+        if returncode != 0:
+            self.log_message(f"Error loading packages: {stderr}")
+            return
+        packages = [line.replace("package:", "") for line in stdout.strip().split('\n')]
+        self.ed_listbox.delete(0, tk.END)
+        for pkg in sorted(packages):
+            self.ed_listbox.insert(tk.END, pkg)
+        self.log_message(f"Loaded {len(packages)} packages")
+
+    def disable_selected_app(self):
+        """Désactive une application"""
+        selection = self.ed_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Warning", "Select an app first")
+            return
+        package = self.ed_listbox.get(selection[0])
+        device_id = self.ed_device_var.get().split('(')[1].split(')')[0]
+        self.log_message(f"Disabling {package} on {device_id}...")
+        stdout, stderr, returncode = self.run_adb_command(["shell", "pm", "disable-user", "--user", "0", package], device_id)
+        if returncode == 0:
+            self.log_message(f"✓ {package} disabled successfully")
+        else:
+            self.log_message(f"✗ Failed to disable {package}: {stderr}")
+
+    def enable_selected_app(self):
+        """Réactive une application"""
+        selection = self.ed_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Warning", "Select an app first")
+            return
+        package = self.ed_listbox.get(selection[0])
+        device_id = self.ed_device_var.get().split('(')[1].split(')')[0]
+        self.log_message(f"Enabling {package} on {device_id}...")
+        stdout, stderr, returncode = self.run_adb_command(["shell", "pm", "enable", package], device_id)
+        if returncode == 0:
+            self.log_message(f"✓ {package} enabled successfully")
+        else:
+            self.log_message(f"✗ Failed to enable {package}: {stderr}")
+
+        
     def run(self):
         """Lance l'application"""
         self.log_message("USB VR Manager started")
