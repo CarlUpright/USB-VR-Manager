@@ -1,0 +1,24 @@
+[2026-02-17 08:44:51] Nouvelle session démarrée
+[2026-02-17 08:44:51] [DEBUG] Appareils chargés: 0
+[2026-02-17 08:45:10] Détection USB activée
+[2026-02-17 08:45:10] Détection USB: 0 appareil(s) déjà connu(s)
+[2026-02-17 08:45:10] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-17 08:45:10]   - 2G0YC5ZG0G02R4: NOUVEAU! (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-17 08:45:10] Configuration de 2G0YC5ZG0G02R4...
+[2026-02-17 08:45:10]   Vérification du SSID...
+[2026-02-17 08:45:11]   SSID appareil: CDT-PRIVE, SSID config: vr-cegep
+[2026-02-17 08:45:11]   ERREUR: Mauvais SSID!
+[2026-02-17 08:45:13] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-17 08:45:14]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-17 08:45:17] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-17 08:45:17]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-17 08:45:21] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-17 08:45:21]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-17 08:45:24] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-17 08:45:24]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-17 08:45:37] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-17 08:45:37]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-17 08:45:40] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-17 08:45:41]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-17 08:45:44] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-17 08:45:44]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
