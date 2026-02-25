@@ -9,6 +9,299 @@ from datetime import datetime
 import threading
 from pathlib import Path
 
+
+# =============================================================================
+# GESTIONNAIRE ADB (copié de VR-Casting-Manager)
+# =============================================================================
+
+class ADBManager:
+    """Gestion des commandes ADB"""
+
+    def __init__(self, adb_path=None):
+        if adb_path and os.path.exists(adb_path):
+            self.adb_path = adb_path
+        else:
+            self.adb_path = self.find_adb_path()
+
+    def find_adb_path(self):
+        """Trouve le chemin vers adb.exe"""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        scrcpy_adb = os.path.join(script_dir, "scrcpy-win64-v3.3.1-quest3-fix", "adb.exe")
+        if os.path.exists(scrcpy_adb):
+            return scrcpy_adb
+
+        username = os.environ.get('USERNAME', 'User')
+        sidequest_path = f"C:\\Users\\{username}\\AppData\\Local\\Programs\\SideQuest\\resources\\app.asar.unpacked\\build\\platform-tools\\adb.exe"
+        if os.path.exists(sidequest_path):
+            return sidequest_path
+
+        return None
+
+    def run_command(self, command, device_id=None, timeout=30):
+        """Exécute une commande ADB"""
+        if not self.adb_path:
+            return "", "ADB not found", 1
+
+        try:
+            if device_id:
+                cmd = [self.adb_path, "-s", device_id] + command
+            else:
+                cmd = [self.adb_path] + command
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            return result.stdout or "", result.stderr or "", result.returncode
+        except subprocess.TimeoutExpired:
+            return "", "Command timeout", 1
+        except Exception as e:
+            return "", str(e), 1
+
+    def get_device_model(self, device_id):
+        """Récupère le modèle de l'appareil"""
+        stdout, _, rc = self.run_command(["shell", "getprop", "ro.product.model"], device_id)
+        if rc == 0:
+            return stdout.strip()
+        return "Unknown"
+
+    def get_device_ip(self, device_id):
+        """Récupère l'adresse IP WiFi de l'appareil"""
+        stdout, _, rc = self.run_command(["shell", "ip", "addr", "show", "wlan0"], device_id)
+        if rc == 0:
+            match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', stdout)
+            if match:
+                return match.group(1)
+        return None
+
+    def get_device_mac(self, device_id):
+        """Récupère l'adresse MAC de l'appareil"""
+        stdout, _, rc = self.run_command(["shell", "dumpsys wifi | grep mWifiInfo | head -1"], device_id)
+        if rc == 0:
+            match = re.search(r'MAC: ([0-9a-fA-F:]+)', stdout)
+            if match:
+                return match.group(1).lower()
+        return None
+
+    def enable_wifi_adb(self, device_id):
+        """Active ADB over WiFi"""
+        stdout, stderr, rc = self.run_command(["tcpip", "5555"], device_id)
+        return rc == 0
+
+    def connect_wifi(self, ip_address):
+        """Connecte à un appareil via WiFi (tentative unique)"""
+        print(f"[ADB] Connexion à {ip_address}:5555...")
+        stdout, stderr, rc = self.run_command(["connect", f"{ip_address}:5555"], timeout=5)
+        print(f"[ADB] Réponse: stdout='{stdout.strip()}', stderr='{stderr.strip()}', rc={rc}")
+
+        if "connected" in stdout.lower() or "already connected" in stdout.lower():
+            print(f"[ADB] Connexion réussie!")
+            return True
+
+        print(f"[ADB] Connexion échouée")
+        return False
+
+    def disable_proximity_sensor(self, device_id):
+        """Désactive le capteur de proximité"""
+        stdout, stderr, rc = self.run_command(
+            ["shell", "am", "broadcast", "-a", "com.oculus.vrpowermanager.prox_close"],
+            device_id
+        )
+        return rc == 0
+
+
+# =============================================================================
+# DIALOGUE DE CONFIGURATION D'APPAREIL (copié de VR-Casting-Manager)
+# =============================================================================
+
+class DeviceSetupDialog:
+    """Dialogue de configuration d'un nouvel appareil (copié de VR-Casting-Manager)"""
+
+    def __init__(self, parent, device_info, adb_manager, log_callback=None):
+        self.result = None
+        self.device_info = device_info
+        self.adb = adb_manager
+        self.log = log_callback if log_callback else print
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(f"Configuration - {device_info['model']}")
+        self.dialog.geometry("450x350")
+        self.dialog.resizable(False, False)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        # Centrer
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() - 450) // 2
+        y = (self.dialog.winfo_screenheight() - 350) // 2
+        self.dialog.geometry(f"+{x}+{y}")
+
+        # Titre
+        tk.Label(
+            self.dialog,
+            text=f"Configuration de {device_info['model']}",
+            font=("Helvetica", 12, "bold")
+        ).pack(pady=10)
+
+        # Frame pour les étapes
+        self.steps_frame = tk.Frame(self.dialog)
+        self.steps_frame.pack(fill="x", padx=20, pady=10)
+
+        # Étapes de vérification
+        self.steps = [
+            ("mac", "Adresse MAC"),
+            ("ip", "Adresse IP"),
+            ("model", "Type d'appareil"),
+            ("adb_wifi", "ADB over WiFi"),
+            ("proximity", "Proximity sensor désactivé")
+        ]
+
+        self.step_labels = {}
+        self.step_status = {}
+
+        for key, text in self.steps:
+            frame = tk.Frame(self.steps_frame)
+            frame.pack(fill="x", pady=2)
+
+            status_label = tk.Label(frame, text="[ ]", width=4)
+            status_label.pack(side="left")
+            self.step_status[key] = status_label
+
+            text_label = tk.Label(frame, text=text, anchor="w", width=25)
+            text_label.pack(side="left", padx=5)
+
+            value_label = tk.Label(frame, text="...", anchor="w", fg="gray")
+            value_label.pack(side="left", padx=5)
+            self.step_labels[key] = value_label
+
+        # Boutons
+        self.btn_frame = tk.Frame(self.dialog)
+        self.btn_frame.pack(pady=20)
+
+        self.cancel_btn = tk.Button(
+            self.btn_frame,
+            text="Annuler",
+            command=self.cancel,
+            width=15
+        )
+        self.cancel_btn.pack(side="left", padx=10)
+
+        # Lancer la configuration
+        self.dialog.after(500, self.run_setup)
+
+    def update_step(self, key, success, value=""):
+        """Met à jour l'affichage d'une étape"""
+        if success:
+            self.step_status[key].config(text="[OK]", fg="green")
+            self.step_labels[key].config(text=value, fg="black")
+        else:
+            self.step_status[key].config(text="[X]", fg="red")
+            self.step_labels[key].config(text=value, fg="red")
+        self.dialog.update()
+
+    def run_setup(self):
+        """Exécute les étapes de configuration"""
+        device_id = self.device_info['device_id']
+        success = True
+        print(f"[Setup] Démarrage pour {device_id}")
+
+        # 1. MAC Address
+        print(f"[Setup] Étape 1: MAC Address...")
+        mac = self.adb.get_device_mac(device_id)
+        if mac:
+            self.device_info['mac'] = mac
+            self.update_step("mac", True, mac)
+            print(f"[Setup] MAC: {mac}")
+        else:
+            self.update_step("mac", False, "Non trouvée")
+            print(f"[Setup] MAC: ÉCHEC")
+            success = False
+
+        # 2. IP Address
+        print(f"[Setup] Étape 2: IP Address...")
+        ip = self.adb.get_device_ip(device_id)
+        if ip:
+            self.device_info['ip'] = ip
+            self.update_step("ip", True, ip)
+            print(f"[Setup] IP: {ip}")
+        else:
+            self.update_step("ip", False, "Non trouvée")
+            print(f"[Setup] IP: ÉCHEC")
+            success = False
+
+        # 3. Model (déjà récupéré)
+        self.update_step("model", True, self.device_info['model'])
+        print(f"[Setup] Modèle: {self.device_info['model']}")
+
+        # 4. ADB over WiFi
+        print(f"[Setup] Étape 4: ADB over WiFi...")
+        if success:
+            if self.adb.enable_wifi_adb(device_id):
+                print(f"[Setup] tcpip 5555 OK, attente 3s...")
+                time.sleep(3)
+                if ip and self.adb.connect_wifi(ip):
+                    self.update_step("adb_wifi", True, f"{ip}:5555")
+                    print(f"[Setup] Connexion WiFi: OK")
+                else:
+                    self.update_step("adb_wifi", False, "Connexion échouée")
+                    print(f"[Setup] Connexion WiFi: ÉCHEC")
+                    success = False
+            else:
+                self.update_step("adb_wifi", False, "Activation échouée")
+                print(f"[Setup] tcpip 5555: ÉCHEC")
+                success = False
+        else:
+            self.update_step("adb_wifi", False, "Étape précédente échouée")
+            print(f"[Setup] ADB WiFi: sauté (erreur précédente)")
+
+        # 5. Disable proximity
+        print(f"[Setup] Étape 5: Désactiver proximity...")
+        if success:
+            wifi_device_id = f"{ip}:5555"
+            if self.adb.disable_proximity_sensor(wifi_device_id):
+                self.update_step("proximity", True, "Commande OK")
+                print(f"[Setup] Proximity: commande envoyée (rc=0)")
+            else:
+                self.update_step("proximity", False, "Commande échouée")
+                print(f"[Setup] Proximity: commande ÉCHOUÉE (rc!=0)")
+                success = False
+        else:
+            self.update_step("proximity", False, "Étape précédente échouée")
+            print(f"[Setup] Proximity: sauté (erreur précédente)")
+
+        # Résultat
+        print(f"[Setup] Résultat: {'SUCCÈS' if success else 'ÉCHEC'}")
+        if success:
+            self.result = self.device_info
+            self.ask_nickname()
+        else:
+            messagebox.showerror(
+                "Erreur",
+                "La configuration a échoué. Veuillez reconnecter l'appareil et réessayer.",
+                parent=self.dialog
+            )
+
+    def ask_nickname(self):
+        """Demande le nickname de l'appareil"""
+        default_name = self.device_info.get('mac', 'Device')
+
+        nickname = simpledialog.askstring(
+            "Nom de l'appareil",
+            f"Quel est le nom de cet appareil?\n(exemple: Q3-07 ou A-13)\n\nPar défaut: {default_name}",
+            initialvalue=default_name,
+            parent=self.dialog
+        )
+
+        if nickname:
+            self.device_info['nickname'] = nickname
+        else:
+            self.device_info['nickname'] = default_name
+
+        self.dialog.destroy()
+
+    def cancel(self):
+        self.result = None
+        self.dialog.destroy()
+
+
 class USBVRManager:
     def __init__(self):
         self.root = tk.Tk()
@@ -20,6 +313,7 @@ class USBVRManager:
 
         # Configuration
         self.adb_path = self.find_adb_path()
+        self.adb_manager = ADBManager(self.adb_path)
         self.scrcpy_path = self.find_scrcpy_path()
         self.devices_file = os.path.join(self.script_dir, "devices.csv")
         self.config_file = os.path.join(self.script_dir, "config.csv")
@@ -37,6 +331,10 @@ class USBVRManager:
 
         # État des accordéons (groupes repliés/dépliés) dans Install APK
         self.group_collapsed = {}  # {"Quest 3": False, "Pico 4": True}
+
+        # USB detection state
+        self.usb_detection_active = False
+        self.usb_detection_thread = None
 
         self.load_devices()
         self.load_config()
@@ -101,11 +399,13 @@ class USBVRManager:
                         device_id, nickname, last_seen = row[0], row[1], row[2]
                         ip_address = row[3] if len(row) >= 4 else ""
                         group = row[4] if len(row) >= 5 else "Non assigné"
+                        mac_address = row[5] if len(row) >= 6 else ""
                         self.devices[device_id] = {
                             "nickname": nickname,
                             "last_seen": last_seen,
                             "ip_address": ip_address,
-                            "group": group
+                            "group": group,
+                            "mac_address": mac_address
                         }
 
     def save_devices(self):
@@ -118,7 +418,8 @@ class USBVRManager:
                     info["nickname"],
                     info["last_seen"],
                     info.get("ip_address", ""),
-                    info.get("group", "Non assigné")
+                    info.get("group", "Non assigné"),
+                    info.get("mac_address", "")
                 ])
     
     def load_config(self):
@@ -174,6 +475,26 @@ class USBVRManager:
             if match:
                 return match.group(1)
         return None
+
+    def get_device_mac(self, device_id):
+        """Récupère l'adresse MAC WiFi de l'appareil"""
+        stdout, stderr, rc = self.run_adb_command(
+            ["shell", "dumpsys wifi | grep mWifiInfo | head -1"], device_id, retry_wireless=False)
+        if rc == 0:
+            match = re.search(r'MAC: ([0-9a-fA-F:]+)', stdout)
+            if match:
+                return match.group(1).lower()
+        return None
+
+    def find_device_by_mac(self, mac):
+        """Trouve un device enregistré par son adresse MAC"""
+        if not mac:
+            return None, None
+        mac_lower = mac.lower()
+        for device_id, info in self.devices.items():
+            if info.get("mac_address", "").lower() == mac_lower:
+                return device_id, info
+        return None, None
 
     def setup_wireless(self, device_id):
         """Active le mode wireless sur un device USB et connecte automatiquement"""
@@ -373,20 +694,51 @@ class USBVRManager:
         """Crée l'onglet Scan for devices"""
         frame = ttk.Frame(notebook)
         notebook.add(frame, text="Scan for devices")
-        
-        # Bouton scan
-        scan_btn = tk.Button(frame, text="Scan for connected devices", command=self.scan_devices)
-        scan_btn.pack(pady=10)
-        
+
+        # Control buttons frame
+        control_frame = tk.Frame(frame)
+        control_frame.pack(fill="x", padx=10, pady=10)
+
+        # USB Detection toggle button
+        self.usb_detect_btn = tk.Button(
+            control_frame,
+            text="Start USB Detection",
+            command=self.toggle_usb_detection,
+            width=18
+        )
+        self.usb_detect_btn.pack(side="left", padx=5)
+
+        # Manual scan button
+        tk.Button(control_frame, text="Manual Scan", command=self.scan_devices).pack(side="left", padx=5)
+
+        # Reconnect All WiFi button
+        tk.Button(control_frame, text="Reconnect All WiFi", command=self.reconnect_all_wifi).pack(side="left", padx=5)
+
+        # Status label
+        self.detection_status_label = tk.Label(frame, text="USB Detection: OFF", fg="gray", font=("Arial", 9))
+        self.detection_status_label.pack(anchor="w", padx=10)
+
         # Liste des devices avec couleurs
         self.devices_listbox = tk.Listbox(frame, height=15)
         self.devices_listbox.pack(fill="both", expand=True, padx=10, pady=5)
-        
+
+        # Menu contextuel (clic droit)
+        self.device_context_menu = tk.Menu(self.devices_listbox, tearoff=0)
+        self.device_context_menu.add_command(label="Set nickname", command=self.set_nickname)
+        self.device_context_menu.add_command(label="Set group", command=self.set_device_group)
+        self.device_context_menu.add_separator()
+        self.device_context_menu.add_command(label="Forget device (remove from list)", command=self.forget_device)
+        self.device_context_menu.add_command(label="Reconnect WiFi", command=self.reconnect_selected_device)
+
+        # Bind clic droit
+        self.devices_listbox.bind("<Button-3>", self.show_device_context_menu)
+
         # Boutons pour renommer et assigner groupe
         btn_frame = tk.Frame(frame)
         btn_frame.pack(pady=5)
         tk.Button(btn_frame, text="Set nickname", command=self.set_nickname).pack(side="left", padx=5)
         tk.Button(btn_frame, text="Set group", command=self.set_device_group).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Forget device", command=self.forget_device).pack(side="left", padx=5)
 
         self.refresh_devices_list()
     
@@ -670,6 +1022,10 @@ class USBVRManager:
         frame = ttk.Frame(notebook)
         notebook.add(frame, text="Enable / Disable App")
 
+        # Variables pour les checkboxes des devices
+        self.ed_device_checkboxes = {}
+        self.ed_device_groups = {}
+
         # --- Sélection par groupe ---
         group_frame = tk.Frame(frame)
         group_frame.pack(fill="x", padx=10, pady=5)
@@ -677,20 +1033,37 @@ class USBVRManager:
         self.ed_group_var = tk.StringVar(value="Tous")
         self.ed_group_combo = ttk.Combobox(group_frame, textvariable=self.ed_group_var, state="readonly", width=20)
         self.ed_group_combo.pack(side="left", padx=5)
-        self.ed_group_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_ed_devices())
+        tk.Button(group_frame, text="Select group", command=self.select_ed_group_devices).pack(side="left", padx=5)
 
-        # --- Sélection du device ---
-        device_frame = tk.Frame(frame)
-        device_frame.pack(fill="x", padx=10, pady=5)
+        # --- Boutons de contrôle devices ---
+        device_btn_frame = tk.Frame(frame)
+        device_btn_frame.pack(fill="x", padx=10, pady=5)
+        tk.Button(device_btn_frame, text="Refresh devices", command=self.refresh_ed_devices).pack(side="left", padx=5)
+        tk.Button(device_btn_frame, text="Select all", command=self.select_all_ed_devices).pack(side="left", padx=5)
+        tk.Button(device_btn_frame, text="Deselect all", command=self.deselect_all_ed_devices).pack(side="left", padx=5)
 
-        tk.Label(device_frame, text="Select device:").pack(anchor="w")
-        self.ed_device_var = tk.StringVar()
-        self.ed_device_combo = ttk.Combobox(device_frame, textvariable=self.ed_device_var, state="readonly")
-        self.ed_device_combo.pack(fill="x", pady=5)
-        # Auto-load packages quand on sélectionne un device
-        self.ed_device_combo.bind("<<ComboboxSelected>>", lambda e: self.load_ed_packages())
+        # --- Frame scrollable pour les checkboxes des devices ---
+        device_scroll_container = tk.Frame(frame)
+        device_scroll_container.pack(fill="x", padx=10, pady=5)
 
-        tk.Button(device_frame, text="Refresh devices", command=self.refresh_ed_devices).pack(pady=5)
+        self.ed_canvas = tk.Canvas(device_scroll_container, height=100, highlightthickness=0)
+        ed_scrollbar = tk.Scrollbar(device_scroll_container, orient="vertical", command=self.ed_canvas.yview)
+        self.ed_canvas.configure(yscrollcommand=ed_scrollbar.set)
+
+        ed_scrollbar.pack(side="right", fill="y")
+        self.ed_canvas.pack(side="left", fill="both", expand=True)
+
+        self.ed_devices_frame = tk.Frame(self.ed_canvas)
+        self.ed_canvas_window = self.ed_canvas.create_window((0, 0), window=self.ed_devices_frame, anchor="nw")
+
+        def on_ed_frame_configure(event):
+            self.ed_canvas.configure(scrollregion=self.ed_canvas.bbox("all"))
+
+        def on_ed_canvas_configure(event):
+            self.ed_canvas.itemconfig(self.ed_canvas_window, width=event.width)
+
+        self.ed_devices_frame.bind("<Configure>", on_ed_frame_configure)
+        self.ed_canvas.bind("<Configure>", on_ed_canvas_configure)
 
         # --- Option pour tous les utilisateurs ---
         self.ed_all_users_var = tk.BooleanVar(value=True)
@@ -701,8 +1074,8 @@ class USBVRManager:
         list_frame = tk.Frame(frame)
         list_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-        tk.Label(list_frame, text="Installed packages (red = disabled):").pack(anchor="w")
-        self.ed_listbox = tk.Listbox(list_frame, height=12, selectmode=tk.EXTENDED)
+        tk.Label(list_frame, text="Installed packages (red = disabled on first selected device):").pack(anchor="w")
+        self.ed_listbox = tk.Listbox(list_frame, height=10, selectmode=tk.EXTENDED)
         scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=self.ed_listbox.yview)
         self.ed_listbox.configure(yscrollcommand=scrollbar.set)
         self.ed_listbox.pack(side="left", fill="both", expand=True)
@@ -892,7 +1265,153 @@ class USBVRManager:
         usb_count = sum(1 for d in current_devices if not self.is_wireless_device(d))
         wifi_count = sum(1 for d in current_devices if self.is_wireless_device(d))
         self.log_message(f"Found {len(current_devices)} device(s): {usb_count} USB, {wifi_count} WiFi")
-    
+
+    def toggle_usb_detection(self):
+        """Active/désactive la détection USB automatique"""
+        if self.usb_detection_active:
+            self.usb_detection_active = False
+            self.usb_detect_btn.config(relief="raised", bg="SystemButtonFace", text="Start USB Detection")
+            self.detection_status_label.config(text="USB Detection: OFF", fg="gray")
+            self.log_message("USB detection stopped")
+        else:
+            self.usb_detection_active = True
+            self.usb_detect_btn.config(relief="sunken", bg="lightgreen", text="Stop USB Detection")
+            self.detection_status_label.config(text="USB Detection: ON - Waiting for device...", fg="green")
+            self.log_message("USB detection started - Connect a headset via USB...")
+            self.usb_detection_thread = threading.Thread(target=self.usb_detection_loop, daemon=True)
+            self.usb_detection_thread.start()
+
+    def usb_detection_loop(self):
+        """Boucle de détection des appareils USB avec logique 'wait for disconnect'"""
+        known_macs = set()
+        current_usb_mac = None  # Track the currently connected USB device's MAC
+
+        # Récupérer les MAC des appareils déjà connus
+        for device_id, info in self.devices.items():
+            mac = info.get("mac_address", "")
+            if mac:
+                known_macs.add(mac.lower())
+
+        self.root.after(0, lambda: self.log_message(f"USB Detection: {len(known_macs)} known device(s) by MAC"))
+
+        while self.usb_detection_active:
+            try:
+                # Get USB devices only (not WiFi connections)
+                stdout, stderr, rc = self.run_adb_command(["devices"], retry_wireless=False)
+                usb_devices = []
+
+                if rc == 0:
+                    for line in stdout.strip().split('\n')[1:]:
+                        if '\tdevice' in line:
+                            device_id = line.split('\t')[0]
+                            # Only USB devices (no ':' in ID)
+                            if ':' not in device_id:
+                                usb_devices.append(device_id)
+
+                if usb_devices:
+                    # Only process ONE USB device (the first one)
+                    device_id = usb_devices[0]
+                    mac = self.get_device_mac(device_id)
+
+                    if mac:
+                        mac_lower = mac.lower()
+
+                        if current_usb_mac is None:
+                            # First detection or after disconnect
+                            current_usb_mac = mac_lower
+
+                            if mac_lower in known_macs:
+                                self.root.after(0, lambda m=mac: self.log_message(f"Known device reconnected (MAC: {m}), re-configuring..."))
+                            else:
+                                self.root.after(0, lambda m=mac: self.log_message(f"NEW device detected (MAC: {m})"))
+
+                            # Configure the device
+                            self.root.after(0, lambda d=device_id, m=mac: self.handle_new_usb_device(d, m))
+                            known_macs.add(mac_lower)
+
+                        elif current_usb_mac != mac_lower:
+                            # Different device connected
+                            self.root.after(0, lambda m=mac: self.log_message(f"Different device detected (MAC: {m})"))
+                            current_usb_mac = mac_lower
+                            self.root.after(0, lambda d=device_id, m=mac: self.handle_new_usb_device(d, m))
+                            known_macs.add(mac_lower)
+                        # If same device still connected (current_usb_mac == mac_lower) → wait
+
+                else:
+                    # No USB device connected - reset tracker
+                    if current_usb_mac is not None:
+                        self.root.after(0, lambda: self.log_message("USB device disconnected, ready for next device..."))
+                        self.root.after(0, lambda: self.detection_status_label.config(
+                            text="USB Detection: ON - Waiting for device...", fg="green"))
+                        current_usb_mac = None
+
+                time.sleep(3)  # Poll every 3 seconds
+
+            except Exception as e:
+                self.root.after(0, lambda err=str(e): self.log_message(f"Detection error: {err}"))
+                time.sleep(5)
+
+    def handle_new_usb_device(self, device_id, mac):
+        """Gère un nouvel appareil USB détecté"""
+        self.log_message(f"Configuring {device_id}...")
+        self.detection_status_label.config(text=f"USB Detection: Configuring {device_id[:8]}...", fg="orange")
+
+        # Récupérer le modèle
+        model = self.detect_device_model(device_id)
+        self.log_message(f"  Model: {model}")
+
+        device_info = {
+            'device_id': device_id,
+            'mac': mac,
+            'model': model
+        }
+
+        # Open setup dialog
+        setup_dialog = DeviceSetupDialog(self.root, device_info, self.adb_manager, self.log_message)
+        self.root.wait_window(setup_dialog.dialog)
+
+        if setup_dialog.result:
+            result = setup_dialog.result
+            # Save device with new device_id (could be different from before if reconnected)
+            self.devices[device_id] = {
+                "nickname": result.get('nickname', f"Device_{device_id[:8]}"),
+                "last_seen": datetime.now().strftime('%Y-%m-%d'),
+                "ip_address": result.get('ip', ''),
+                "group": model,
+                "mac_address": mac
+            }
+            self.save_devices()
+            self.log_message(f"Device configured: {result.get('nickname')} (IP: {result.get('ip')}:5555)")
+            self.refresh_devices_list()
+        else:
+            self.log_message("Configuration cancelled or failed")
+
+        self.detection_status_label.config(text="USB Detection: ON - Waiting for device...", fg="green")
+
+    def reconnect_all_wifi(self):
+        """Tente de reconnecter tous les devices WiFi connus"""
+        self.log_message("Reconnecting all WiFi devices...")
+
+        def do_reconnect():
+            count_ok = 0
+            count_fail = 0
+            for device_id, info in self.devices.items():
+                ip = info.get("ip_address")
+                if ip:
+                    nickname = info.get("nickname", device_id)
+                    if self.try_reconnect_wireless(device_id, timeout=5):
+                        self.root.after(0, lambda n=nickname: self.log_message(f"  OK: {n}"))
+                        count_ok += 1
+                    else:
+                        self.root.after(0, lambda n=nickname: self.log_message(f"  FAILED: {n}"))
+                        count_fail += 1
+
+            self.root.after(0, lambda: self.log_message(f"Reconnection done: {count_ok} OK, {count_fail} failed"))
+            self.root.after(0, self.refresh_devices_list)
+
+        thread = threading.Thread(target=do_reconnect, daemon=True)
+        thread.start()
+
     def refresh_devices_list(self):
         """Rafraîchit la liste des devices dans l'onglet scan"""
         self.devices_listbox.delete(0, tk.END)
@@ -911,7 +1430,10 @@ class USBVRManager:
                         status = parts[1].upper()
                         current_devices[device_id] = status
 
-        # Créer une liste triée par nickname
+        # Track which connected devices we've displayed
+        displayed_connected = set()
+
+        # Créer une liste triée par nickname (devices enregistrés)
         sorted_devices = sorted(self.devices.items(), key=lambda x: x[1]["nickname"].lower())
 
         for device_id, info in sorted_devices:
@@ -927,10 +1449,12 @@ class USBVRManager:
                 status = current_devices.get(wireless_id, "OFFLINE")
                 connection_type = "[WiFi]"
                 display_id = wireless_id
+                displayed_connected.add(wireless_id)
             elif is_usb_connected:
                 status = current_devices.get(device_id, "OFFLINE")
                 connection_type = "[USB]"
                 display_id = device_id
+                displayed_connected.add(device_id)
             else:
                 status = "OFFLINE"
                 connection_type = "[WiFi]" if ip_address else ""
@@ -951,6 +1475,30 @@ class USBVRManager:
                 self.devices_listbox.itemconfig(index, fg="orange")
             elif status == "DEVICE":
                 self.devices_listbox.itemconfig(index, fg="green")
+
+        # Afficher les devices WiFi connectés mais non enregistrés
+        for device_id, status in current_devices.items():
+            if device_id not in displayed_connected:
+                # Device connecté mais pas dans self.devices
+                is_wifi = self.is_wireless_device(device_id)
+                connection_type = "[WiFi]" if is_wifi else "[USB]"
+
+                if status == "UNAUTHORIZED":
+                    status_display = "UNAUTHORIZED (Accept USB debugging on headset)"
+                else:
+                    status_display = status
+
+                display_text = f"New device ({device_id}) [Non enregistré] {connection_type} - {status_display}"
+                self.devices_listbox.insert(tk.END, display_text)
+
+                # Définir les couleurs
+                index = self.devices_listbox.size() - 1
+                if status == "OFFLINE":
+                    self.devices_listbox.itemconfig(index, fg="red")
+                elif status == "UNAUTHORIZED":
+                    self.devices_listbox.itemconfig(index, fg="orange")
+                elif status == "DEVICE":
+                    self.devices_listbox.itemconfig(index, fg="green")
     
     def find_device_by_display_id(self, display_id):
         """Trouve le device_id original à partir de l'ID affiché (peut être IP:port)"""
@@ -1047,6 +1595,93 @@ class USBVRManager:
             dialog.destroy()
 
         tk.Button(dialog, text="Save", command=save_group, bg="lightgreen").pack(pady=10)
+
+    def show_device_context_menu(self, event):
+        """Affiche le menu contextuel sur clic droit"""
+        # Sélectionner l'item sous le curseur
+        index = self.devices_listbox.nearest(event.y)
+        if index >= 0:
+            self.devices_listbox.selection_clear(0, tk.END)
+            self.devices_listbox.selection_set(index)
+            self.devices_listbox.activate(index)
+            # Afficher le menu
+            try:
+                self.device_context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.device_context_menu.grab_release()
+
+    def forget_device(self):
+        """Oublie/supprime un device de la liste (peut être reconnecté plus tard)"""
+        selection = self.devices_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a device first")
+            return
+
+        item_text = self.devices_listbox.get(selection[0])
+        display_id = item_text.split('(')[1].split(')')[0]
+
+        # Trouver le vrai device_id
+        device_id = self.find_device_by_display_id(display_id)
+
+        if not device_id:
+            # C'est peut-être un device non enregistré (WiFi connecté mais pas sauvegardé)
+            messagebox.showinfo("Info", "This device is not registered yet, nothing to forget.")
+            return
+
+        nickname = self.devices[device_id].get("nickname", device_id)
+
+        # Demander confirmation
+        if not messagebox.askyesno("Confirm",
+                                   f"Forget device '{nickname}'?\n\n"
+                                   f"The device will be removed from the list.\n"
+                                   f"You can reconnect it later by scanning or using 'adb connect'."):
+            return
+
+        # Supprimer le device de la liste
+        del self.devices[device_id]
+        self.save_devices()
+        self.refresh_devices_list()
+        self.log_message(f"Device '{nickname}' ({device_id}) removed from list")
+
+    def reconnect_selected_device(self):
+        """Tente de reconnecter le device WiFi sélectionné"""
+        selection = self.devices_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a device first")
+            return
+
+        item_text = self.devices_listbox.get(selection[0])
+        display_id = item_text.split('(')[1].split(')')[0]
+
+        # Trouver le device_id et son IP
+        device_id = self.find_device_by_display_id(display_id)
+
+        if device_id and device_id in self.devices:
+            info = self.devices[device_id]
+            ip = info.get("ip_address")
+            nickname = info.get("nickname", device_id)
+
+            if ip:
+                self.log_message(f"Reconnecting {nickname} via {ip}:5555...")
+                if self.try_reconnect_wireless(device_id, timeout=10):
+                    self.log_message(f"✓ Reconnected {nickname}")
+                else:
+                    self.log_message(f"✗ Failed to reconnect {nickname}")
+                self.refresh_devices_list()
+            else:
+                messagebox.showinfo("Info", f"No IP address saved for {nickname}.\nConnect via USB first to enable WiFi.")
+        else:
+            # Peut-être un device WiFi non enregistré - essayer de connecter directement
+            if self.is_wireless_device(display_id):
+                self.log_message(f"Reconnecting {display_id}...")
+                stdout, stderr, rc = self.run_adb_command(["connect", display_id], retry_wireless=False)
+                if "connected" in stdout.lower():
+                    self.log_message(f"✓ Reconnected {display_id}")
+                else:
+                    self.log_message(f"✗ Failed to reconnect {display_id}: {stderr}")
+                self.refresh_devices_list()
+            else:
+                messagebox.showinfo("Info", "This is a USB device. Reconnection is not applicable.")
 
     def add_apk_files(self):
         """Ajoute des fichiers APK à la liste d'installation"""
@@ -2105,48 +2740,95 @@ class USBVRManager:
         # Pour cette démo, on va écraser par défaut
         return "overwrite"
     def refresh_ed_devices(self):
-        """Rafraîchit la liste des devices pour l'onglet Enable/Disable"""
+        """Rafraîchit la liste des devices pour l'onglet Enable/Disable avec checkboxes"""
+        # Nettoyer les anciens checkboxes
+        for widget in self.ed_devices_frame.winfo_children():
+            widget.destroy()
+
+        self.ed_device_checkboxes.clear()
+        self.ed_device_groups = {}
+
         # Mettre à jour le dropdown des groupes
         groups = ["Tous"] + self.get_all_groups()
         self.ed_group_combo["values"] = groups
 
-        selected_group = self.ed_group_var.get()
-
+        # Obtenir les devices connectés
         stdout, stderr, returncode = self.run_adb_command(["devices"])
-        devices = []
-        if returncode == 0:
-            lines = stdout.strip().split('\n')[1:]
-            for line in lines:
-                if '\tdevice' in line:
-                    device_id = line.split('\t')[0]
 
-                    # Trouver le groupe du device
+        if returncode != 0:
+            self.log_message(f"Error getting devices: {stderr}")
+            return
+
+        lines = stdout.strip().split('\n')[1:]
+
+        for line in lines:
+            if '\tdevice' in line:
+                parts = line.split('\t')
+                if len(parts) >= 2:
+                    device_id = parts[0]
+                    status = parts[1]
+
+                    # Trouver le groupe et nickname
                     group = "Non assigné"
-                    nickname = device_id
+                    nickname = f"Device_{device_id[:8]}"
                     for did, info in self.devices.items():
                         ip = info.get("ip_address", "")
                         if did == device_id or (ip and f"{ip}:5555" == device_id):
                             group = info.get("group", "Non assigné")
-                            nickname = info.get("nickname", device_id)
+                            nickname = info.get("nickname", nickname)
                             break
 
-                    # Filtrer par groupe
-                    if selected_group == "Tous" or group == selected_group:
-                        devices.append(f"{nickname} ({device_id}) [{group}]")
+                    var = tk.BooleanVar()
+                    checkbox = tk.Checkbutton(self.ed_devices_frame,
+                                            text=f"{nickname} ({device_id}) [{group}]",
+                                            variable=var)
+                    checkbox.pack(anchor="w")
 
-        self.ed_device_combo["values"] = devices
-        # Ne pas sélectionner de device par défaut - l'utilisateur doit choisir
-        self.ed_device_var.set("")
+                    self.ed_device_checkboxes[device_id] = var
+                    self.ed_device_groups[device_id] = group
+
         # Vider la liste des packages
         self.ed_listbox.delete(0, tk.END)
 
+    def select_all_ed_devices(self):
+        """Sélectionne tous les devices pour Enable/Disable"""
+        for var in self.ed_device_checkboxes.values():
+            var.set(True)
+
+    def deselect_all_ed_devices(self):
+        """Désélectionne tous les devices pour Enable/Disable"""
+        for var in self.ed_device_checkboxes.values():
+            var.set(False)
+
+    def select_ed_group_devices(self):
+        """Sélectionne les devices du groupe choisi pour Enable/Disable"""
+        selected_group = self.ed_group_var.get()
+
+        for device_id, var in self.ed_device_checkboxes.items():
+            device_group = self.ed_device_groups.get(device_id, "Non assigné")
+            if selected_group == "Tous" or device_group == selected_group:
+                var.set(True)
+            else:
+                var.set(False)
+
     def load_ed_packages(self):
-        """Charge la liste des apps installées sur le casque avec statut disabled en rouge"""
-        if not self.ed_device_var.get():
-            messagebox.showwarning("Warning", "Select a device first")
+        """Charge la liste des apps installées sur le premier casque sélectionné"""
+        selected_devices = [d for d, var in self.ed_device_checkboxes.items() if var.get()]
+
+        if not selected_devices:
+            messagebox.showwarning("Warning", "Select at least one device first")
             return
-        device_id = self.ed_device_var.get().split('(')[1].split(')')[0]
-        self.log_message(f"Loading packages for {device_id}...")
+
+        # Utiliser le premier device sélectionné pour charger la liste des packages
+        device_id = selected_devices[0]
+        nickname = device_id
+        for did, info in self.devices.items():
+            ip = info.get("ip_address", "")
+            if did == device_id or (ip and f"{ip}:5555" == device_id):
+                nickname = info.get("nickname", device_id)
+                break
+
+        self.log_message(f"Loading packages from {nickname}...")
 
         # Charger tous les packages
         stdout, stderr, returncode = self.run_adb_command(["shell", "pm", "list", "packages"], device_id)
@@ -2192,72 +2874,122 @@ class USBVRManager:
         return users if users else ["0"]  # Défaut à user 0 si aucun trouvé
 
     def disable_selected_apps(self):
-        """Désactive les applications sélectionnées"""
+        """Désactive les applications sélectionnées sur tous les devices sélectionnés"""
         selection = self.ed_listbox.curselection()
         if not selection:
             messagebox.showwarning("Warning", "Select at least one app first")
             return
 
-        packages = [self.ed_listbox.get(i) for i in selection]
-        device_id = self.ed_device_var.get().split('(')[1].split(')')[0]
+        selected_devices = [d for d, var in self.ed_device_checkboxes.items() if var.get()]
+        if not selected_devices:
+            messagebox.showwarning("Warning", "Select at least one device first")
+            return
 
-        if self.ed_all_users_var.get():
-            users = self.get_device_users(device_id)
-            self.log_message(f"Disabling {len(packages)} app(s) for {len(users)} user(s)...")
+        packages = [self.ed_listbox.get(i) for i in selection]
+
+        # Confirmation
+        if not messagebox.askyesno("Confirm",
+                                   f"Disable {len(packages)} app(s) on {len(selected_devices)} device(s)?"):
+            return
+
+        # Exécution en arrière-plan
+        thread = threading.Thread(target=self._disable_apps_thread, args=(packages, selected_devices))
+        thread.daemon = True
+        thread.start()
+
+    def _disable_apps_thread(self, packages, devices):
+        """Thread pour désactiver les apps sur plusieurs devices"""
+        total = len(packages) * len(devices)
+        current = 0
+
+        for device_id in devices:
+            # Trouver le nickname
+            nickname = device_id
+            for did, info in self.devices.items():
+                ip = info.get("ip_address", "")
+                if did == device_id or (ip and f"{ip}:5555" == device_id):
+                    nickname = info.get("nickname", device_id)
+                    break
+
+            self.log_message(f"Processing {nickname}...")
+
+            if self.ed_all_users_var.get():
+                users = self.get_device_users(device_id)
+            else:
+                users = ["0"]
+
             for package in packages:
+                current += 1
                 for user_id in users:
                     stdout, stderr, returncode = self.run_adb_command(
                         ["shell", "pm", "disable-user", "--user", user_id, package], device_id)
                     if returncode == 0:
-                        self.log_message(f"✓ {package} disabled for user {user_id}")
+                        self.log_message(f"[{current}/{total}] ✓ {package} disabled on {nickname} (user {user_id})")
                     else:
-                        self.log_message(f"✗ Failed to disable {package} for user {user_id}: {stderr}")
-        else:
-            self.log_message(f"Disabling {len(packages)} app(s)...")
-            for package in packages:
-                stdout, stderr, returncode = self.run_adb_command(
-                    ["shell", "pm", "disable-user", "--user", "0", package], device_id)
-                if returncode == 0:
-                    self.log_message(f"✓ {package} disabled successfully")
-                else:
-                    self.log_message(f"✗ Failed to disable {package}: {stderr}")
+                        self.log_message(f"[{current}/{total}] ✗ Failed to disable {package} on {nickname}: {stderr}")
 
+        self.log_message("Disable operation completed!")
         # Rafraîchir la liste pour mettre à jour les couleurs
-        self.load_ed_packages()
+        self.root.after(0, self.load_ed_packages)
 
     def enable_selected_apps(self):
-        """Réactive les applications sélectionnées"""
+        """Réactive les applications sélectionnées sur tous les devices sélectionnés"""
         selection = self.ed_listbox.curselection()
         if not selection:
             messagebox.showwarning("Warning", "Select at least one app first")
             return
 
-        packages = [self.ed_listbox.get(i) for i in selection]
-        device_id = self.ed_device_var.get().split('(')[1].split(')')[0]
+        selected_devices = [d for d, var in self.ed_device_checkboxes.items() if var.get()]
+        if not selected_devices:
+            messagebox.showwarning("Warning", "Select at least one device first")
+            return
 
-        if self.ed_all_users_var.get():
-            users = self.get_device_users(device_id)
-            self.log_message(f"Enabling {len(packages)} app(s) for {len(users)} user(s)...")
+        packages = [self.ed_listbox.get(i) for i in selection]
+
+        # Confirmation
+        if not messagebox.askyesno("Confirm",
+                                   f"Enable {len(packages)} app(s) on {len(selected_devices)} device(s)?"):
+            return
+
+        # Exécution en arrière-plan
+        thread = threading.Thread(target=self._enable_apps_thread, args=(packages, selected_devices))
+        thread.daemon = True
+        thread.start()
+
+    def _enable_apps_thread(self, packages, devices):
+        """Thread pour activer les apps sur plusieurs devices"""
+        total = len(packages) * len(devices)
+        current = 0
+
+        for device_id in devices:
+            # Trouver le nickname
+            nickname = device_id
+            for did, info in self.devices.items():
+                ip = info.get("ip_address", "")
+                if did == device_id or (ip and f"{ip}:5555" == device_id):
+                    nickname = info.get("nickname", device_id)
+                    break
+
+            self.log_message(f"Processing {nickname}...")
+
+            if self.ed_all_users_var.get():
+                users = self.get_device_users(device_id)
+            else:
+                users = ["0"]
+
             for package in packages:
+                current += 1
                 for user_id in users:
                     stdout, stderr, returncode = self.run_adb_command(
                         ["shell", "pm", "enable", "--user", user_id, package], device_id)
                     if returncode == 0:
-                        self.log_message(f"✓ {package} enabled for user {user_id}")
+                        self.log_message(f"[{current}/{total}] ✓ {package} enabled on {nickname} (user {user_id})")
                     else:
-                        self.log_message(f"✗ Failed to enable {package} for user {user_id}: {stderr}")
-        else:
-            self.log_message(f"Enabling {len(packages)} app(s)...")
-            for package in packages:
-                stdout, stderr, returncode = self.run_adb_command(
-                    ["shell", "pm", "enable", package], device_id)
-                if returncode == 0:
-                    self.log_message(f"✓ {package} enabled successfully")
-                else:
-                    self.log_message(f"✗ Failed to enable {package}: {stderr}")
+                        self.log_message(f"[{current}/{total}] ✗ Failed to enable {package} on {nickname}: {stderr}")
 
+        self.log_message("Enable operation completed!")
         # Rafraîchir la liste pour mettre à jour les couleurs
-        self.load_ed_packages()
+        self.root.after(0, self.load_ed_packages)
 
     def on_tab_changed(self, event):
         """Rafraîchit automatiquement les données de l'onglet actif"""

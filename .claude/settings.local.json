@@ -59,7 +59,8 @@
       "Bash(where:*)",
       "Bash(\"C:/Users/crousseau/Downloads/USB-VR-Manager/python/python.exe\" -c \"import tkinter; print\\(''Tkinter OK:'', tkinter.TkVersion\\)\")",
       "Bash(\"C:/Users/crousseau/Downloads/USB-VR-Manager/python/python.exe\" -c \"import tkinter; import subprocess; import csv; import threading; import json; import re; from pathlib import Path; from datetime import datetime; print\\(''Tous les imports OK!''\\)\")",
-      "Bash(git -C \"C:\\\\Users\\\\crousseau\\\\Downloads\\\\USB-VR-Manager\" add VR-Casting-Manager.py)"
+      "Bash(git -C \"C:\\\\Users\\\\crousseau\\\\Downloads\\\\USB-VR-Manager\" add VR-Casting-Manager.py)",
+      "Bash(git -C \"C:\\\\Users\\\\crousseau\\\\Downloads\\\\USB-VR-Manager\" commit -m \"$\\(cat <<''EOF''\nAdd VR-Casting-Manager, portable Python, scrcpy and launcher scripts\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }

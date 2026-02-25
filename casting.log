@@ -1,24 +1,100 @@
-[2026-02-17 08:44:51] Nouvelle session démarrée
-[2026-02-17 08:44:51] [DEBUG] Appareils chargés: 0
-[2026-02-17 08:45:10] Détection USB activée
-[2026-02-17 08:45:10] Détection USB: 0 appareil(s) déjà connu(s)
-[2026-02-17 08:45:10] Scan: 1 appareil(s) USB détecté(s)
-[2026-02-17 08:45:10]   - 2G0YC5ZG0G02R4: NOUVEAU! (MAC: c0:dd:8a:51:b5:3f)
-[2026-02-17 08:45:10] Configuration de 2G0YC5ZG0G02R4...
-[2026-02-17 08:45:10]   Vérification du SSID...
-[2026-02-17 08:45:11]   SSID appareil: CDT-PRIVE, SSID config: vr-cegep
-[2026-02-17 08:45:11]   ERREUR: Mauvais SSID!
-[2026-02-17 08:45:13] Scan: 1 appareil(s) USB détecté(s)
-[2026-02-17 08:45:14]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
-[2026-02-17 08:45:17] Scan: 1 appareil(s) USB détecté(s)
-[2026-02-17 08:45:17]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
-[2026-02-17 08:45:21] Scan: 1 appareil(s) USB détecté(s)
-[2026-02-17 08:45:21]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
-[2026-02-17 08:45:24] Scan: 1 appareil(s) USB détecté(s)
-[2026-02-17 08:45:24]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
-[2026-02-17 08:45:37] Scan: 1 appareil(s) USB détecté(s)
-[2026-02-17 08:45:37]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
-[2026-02-17 08:45:40] Scan: 1 appareil(s) USB détecté(s)
-[2026-02-17 08:45:41]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
-[2026-02-17 08:45:44] Scan: 1 appareil(s) USB détecté(s)
-[2026-02-17 08:45:44]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-19 11:34:03] Nouvelle session démarrée
+[2026-02-19 11:34:03] [DEBUG] Appareils chargés: 0
+[2026-02-19 13:09:56] Nouvelle session démarrée
+[2026-02-19 13:09:56] [DEBUG] Appareils chargés: 0
+[2026-02-19 13:21:44] Nouvelle session démarrée
+[2026-02-19 13:21:44] [DEBUG] Appareils chargés: 0
+[2026-02-19 13:21:55] Détection USB activée
+[2026-02-19 13:21:55] Détection USB: 0 appareil(s) déjà connu(s)
+[2026-02-19 13:22:01] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-19 13:22:01]   - 2G0YC5ZG0G02R4: NOUVEAU! (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-19 13:22:01] Configuration de 2G0YC5ZG0G02R4...
+[2026-02-19 13:22:01]   Vérification du SSID...
+[2026-02-19 13:22:01]   SSID appareil: vr-cegep, SSID config: vr-cegep
+[2026-02-19 13:22:01]   Récupération du modèle...
+[2026-02-19 13:22:01]   Modèle: Quest 3
+[2026-02-19 13:22:01]   Ouverture du dialogue de configuration...
+[2026-02-19 13:22:10] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-19 13:22:10]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-19 13:22:13] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-19 13:22:13]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-19 13:22:16] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-19 13:22:16]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-19 13:22:18]   Configuration annulée ou échouée
+[2026-02-19 13:22:19] Scan: 1 appareil(s) USB détecté(s)
+[2026-02-19 13:22:19]   - 2G0YC5ZG0G02R4: déjà connu (MAC: c0:dd:8a:51:b5:3f)
+[2026-02-25 10:09:31] Nouvelle session démarrée
+[2026-02-25 10:09:31] [DEBUG] Appareils chargés: 0
+[2026-02-25 10:09:49] Détection USB activée
+[2026-02-25 10:09:49] Détection USB: 0 appareil(s) déjà connu(s)
+[2026-02-25 10:09:49] Nouveau(x) branchement(s): 1 appareil(s)
+[2026-02-25 10:09:49]   - 1WMHHA47H02141: NOUVEAU! (MAC: b4:17:a8:49:9d:c4)
+[2026-02-25 10:09:49] Configuration de 1WMHHA47H02141...
+[2026-02-25 10:09:49]   Vérification du SSID...
+[2026-02-25 10:09:49]   SSID appareil: vr-cegep, SSID config: vr-cegep
+[2026-02-25 10:09:49]   Récupération du modèle...
+[2026-02-25 10:09:49]   Modèle: Quest 2
+[2026-02-25 10:09:49]   Ouverture du dialogue de configuration...
+[2026-02-25 10:10:01] Appareil configuré: Q2-01
+[2026-02-25 10:10:01] [DEBUG] Appareils chargés: 1
+[2026-02-25 10:10:01] [DEBUG]   Q2-01: IP=192.168.0.221
+[2026-02-25 10:10:14] Nouveau(x) branchement(s): 1 appareil(s)
+[2026-02-25 10:10:14]   - 1WMHHA47H02141: déjà connu (MAC: b4:17:a8:49:9d:c4), vérification...
+[2026-02-25 10:10:14]   Reconnexion de Q2-01...
+[2026-02-25 10:10:14]   Q2-01: même IP (192.168.0.221)
+[2026-02-25 10:10:14]   Q2-01: activation ADB WiFi...
+[2026-02-25 10:10:16]   Q2-01: connexion à 192.168.0.221:5555...
+[2026-02-25 10:10:16]   Q2-01: connecté!
+[2026-02-25 10:10:16] [DEBUG] Appareils chargés: 1
+[2026-02-25 10:10:16] [DEBUG]   Q2-01: IP=192.168.0.221
+[2026-02-25 10:10:34] Casting demandé: Q2-01
+[2026-02-25 10:10:52] Nouveau(x) branchement(s): 1 appareil(s)
+[2026-02-25 10:10:52]   - 1PASH9BZYK9373: NOUVEAU! (MAC: 2c:26:17:4f:7a:8a)
+[2026-02-25 10:10:52] Configuration de 1PASH9BZYK9373...
+[2026-02-25 10:10:52]   Vérification du SSID...
+[2026-02-25 10:10:53]   SSID appareil: vr-cegep, SSID config: vr-cegep
+[2026-02-25 10:10:53]   Récupération du modèle...
+[2026-02-25 10:10:53]   Modèle: Quest
+[2026-02-25 10:10:53]   Ouverture du dialogue de configuration...
+[2026-02-25 10:10:59] Nouveau(x) branchement(s): 1 appareil(s)
+[2026-02-25 10:10:59]   - 1PASH9BZYK9373: déjà connu (MAC: 2c:26:17:4f:7a:8a), vérification...
+[2026-02-25 10:10:59]   Erreur: appareil 2c:26:17:4f:7a:8a non trouvé dans la session
+[2026-02-25 10:11:09] Appareil configuré: Q1-01
+[2026-02-25 10:11:10] [DEBUG] Appareils chargés: 2
+[2026-02-25 10:11:10] [DEBUG]   Q2-01: IP=192.168.0.221
+[2026-02-25 10:11:10] [DEBUG]   Q1-01: IP=192.168.0.206
+[2026-02-25 10:11:14] Casting demandé: Q1-01
+[2026-02-25 10:11:45] Nouveau(x) branchement(s): 1 appareil(s)
+[2026-02-25 10:11:47]   - 1PASH9BZYK9373: déjà connu (MAC: 2c:26:17:4f:7a:8a), vérification...
+[2026-02-25 10:11:47]   Reconnexion de Q1-01...
+[2026-02-25 10:11:47]   Q1-01: même IP (192.168.0.206)
+[2026-02-25 10:11:47]   Q1-01: activation ADB WiFi...
+[2026-02-25 10:11:50]   Q1-01: connexion à 192.168.0.206:5555...
+[2026-02-25 10:11:50]   Q1-01: connecté!
+[2026-02-25 10:11:50] [DEBUG] Appareils chargés: 2
+[2026-02-25 10:11:50] [DEBUG]   Q2-01: IP=192.168.0.221
+[2026-02-25 10:11:50] [DEBUG]   Q1-01: IP=192.168.0.206
+[2026-02-25 10:12:03] Casting demandé: Q1-01
+[2026-02-25 10:15:25] Nouvelle session démarrée
+[2026-02-25 10:15:25] [DEBUG] Appareils chargés: 2
+[2026-02-25 10:15:25] [DEBUG]   Q2-01: IP=
+[2026-02-25 10:15:25] [DEBUG]   Q1-01: IP=
+[2026-02-25 10:15:29] Détection USB activée
+[2026-02-25 10:15:29] Détection USB: 2 appareil(s) déjà connu(s)
+[2026-02-25 10:15:29] Nouveau(x) branchement(s): 1 appareil(s)
+[2026-02-25 10:15:29]   - 1PASH9BZYK9373: déjà connu (MAC: 2c:26:17:4f:7a:8a), vérification...
+[2026-02-25 10:15:29]   Reconnexion de Q1-01...
+[2026-02-25 10:15:30]   Q1-01: IP changée ( -> 192.168.100.106)
+[2026-02-25 10:15:30]   Q1-01: activation ADB WiFi...
+[2026-02-25 10:15:32]   Q1-01: connexion à 192.168.100.106:5555...
+[2026-02-25 10:15:32]   Q1-01: connecté!
+[2026-02-25 10:15:32] [DEBUG] Appareils chargés: 2
+[2026-02-25 10:15:32] [DEBUG]   Q2-01: IP=
+[2026-02-25 10:15:32] [DEBUG]   Q1-01: IP=192.168.100.106
+[2026-02-25 10:15:35] Casting demandé: Q1-01
+[2026-02-25 10:31:14] Nouvelle session démarrée
+[2026-02-25 10:31:14] [DEBUG] Appareils chargés: 2
+[2026-02-25 10:31:14] [DEBUG]   Q2-01: IP=
+[2026-02-25 10:31:14] [DEBUG]   Q1-01: IP=
+[2026-02-25 10:31:30] Détection USB activée
+[2026-02-25 10:31:30] Détection USB: 2 appareil(s) déjà connu(s)

@@ -30,7 +30,8 @@ class ConfigManager:
         "scrcpy_presets": {
             "Quest 3": ["--no-audio", "--angle=20", "--crop=1500:1500:370:200"],
             "Quest 2": ["--no-audio", "--crop=1080:900:270:270"],
-            "Quest": ["--no-audio"],
+            "Quest": ["--no-audio", "--crop=1080:900:270:270"],
+            "VR_S3": ["--no-audio", "--crop=1080:1300:270:500"],
             "default": ["--no-audio"]
         }
     }
@@ -912,6 +913,7 @@ class VRCastingManager:
     def usb_detection_loop(self):
         """Boucle de détection des appareils USB"""
         known_macs = set()
+        seen_usb_devices = set()  # Track les device_id USB actuellement branchés
 
         # Récupérer les MAC des appareils déjà connus
         for mac, info in self.session.get_devices().items():
@@ -923,11 +925,18 @@ class VRCastingManager:
             try:
                 devices = self.adb.get_devices()
                 usb_devices = [d for d in devices if ':' not in d]
+                current_usb_set = set(usb_devices)
 
-                if usb_devices:
-                    self.root.after(0, lambda devs=usb_devices: self.log(f"Scan: {len(devs)} appareil(s) USB détecté(s)"))
+                # Détecter les NOUVEAUX appareils USB (branchés depuis le dernier scan)
+                new_usb_devices = current_usb_set - seen_usb_devices
 
-                for device_id in usb_devices:
+                # Mettre à jour les appareils vus (retirer les débranchés, ajouter les nouveaux)
+                seen_usb_devices = current_usb_set
+
+                if new_usb_devices:
+                    self.root.after(0, lambda devs=new_usb_devices: self.log(f"Nouveau(x) branchement(s): {len(devs)} appareil(s)"))
+
+                for device_id in new_usb_devices:
                     # Récupérer la MAC
                     mac = self.adb.get_device_mac(device_id)
 
@@ -936,7 +945,9 @@ class VRCastingManager:
                         continue
 
                     if mac in known_macs:
-                        self.root.after(0, lambda d=device_id, m=mac: self.log(f"  - {d}: déjà connu (MAC: {m})"))
+                        # Casque connu - vérifier IP et refaire connexion ADB WiFi
+                        self.root.after(0, lambda d=device_id, m=mac: self.log(f"  - {d}: déjà connu (MAC: {m}), vérification..."))
+                        self.root.after(0, lambda d=device_id, m=mac: self.handle_known_device_reconnect(d, m))
                         continue
 
                     # Nouvel appareil détecté
@@ -1012,6 +1023,68 @@ class VRCastingManager:
             self.refresh_devices_display()
         else:
             self.log(f"  Configuration annulée ou échouée")
+
+    def handle_known_device_reconnect(self, device_id, mac):
+        """Gère la reconnexion d'un casque déjà connu via USB"""
+        existing = self.session.get_device(mac)
+        if not existing:
+            self.log(f"  Erreur: appareil {mac} non trouvé dans la session")
+            return
+
+        nickname = existing.get('nickname', mac)
+        old_ip = existing.get('ip', '')
+        self.log(f"  Reconnexion de {nickname}...")
+
+        # 1. Vérifier le SSID
+        device_ssid = self.adb.get_device_ssid(device_id)
+        configured_ssid = self.config.get("ssid")
+        if device_ssid != configured_ssid:
+            self.log(f"  {nickname}: ERREUR - mauvais WiFi ({device_ssid} au lieu de {configured_ssid})")
+            messagebox.showwarning(
+                "Mauvais réseau WiFi",
+                f"{nickname} est sur '{device_ssid}' au lieu de '{configured_ssid}'!\n\n"
+                f"Connecte-le au bon réseau WiFi.",
+                parent=self.root
+            )
+            return
+
+        # 2. Récupérer l'IP actuelle
+        new_ip = self.adb.get_device_ip(device_id)
+        if not new_ip:
+            self.log(f"  {nickname}: impossible de récupérer l'IP (WiFi connecté?)")
+            return
+
+        # 3. Comparer les IPs
+        if new_ip != old_ip:
+            self.log(f"  {nickname}: IP changée ({old_ip} -> {new_ip})")
+            self.session.update_device(mac, 'ip', new_ip)
+        else:
+            self.log(f"  {nickname}: même IP ({new_ip})")
+
+        # 4. Activer ADB over WiFi (tcpip 5555)
+        self.log(f"  {nickname}: activation ADB WiFi... (accepte le USB Debug dans le casque si demandé!)")
+        if not self.adb.enable_wifi_adb(device_id):
+            self.log(f"  {nickname}: ÉCHEC tcpip 5555 - as-tu accepté le USB Debug dans le casque?")
+            messagebox.showwarning(
+                "USB Debug requis",
+                f"{nickname}: La connexion ADB a échoué.\n\n"
+                f"As-tu accepté la demande 'Autoriser le débogage USB' dans le casque?\n\n"
+                f"Débranche et rebranche le casque, puis accepte la demande.",
+                parent=self.root
+            )
+            return
+
+        # Attendre que le mode TCP soit actif
+        time.sleep(2)
+
+        # 5. Connexion WiFi
+        self.log(f"  {nickname}: connexion à {new_ip}:5555...")
+        if self.adb.connect_wifi(new_ip):
+            self.log(f"  {nickname}: connecté!")
+            # Rafraîchir l'affichage
+            self.root.after(0, self.refresh_devices_display)
+        else:
+            self.log(f"  {nickname}: ÉCHEC connexion WiFi")
 
     def reconnect_refresh(self):
         """Reconnecte tous les appareils et rafraîchit les infos"""

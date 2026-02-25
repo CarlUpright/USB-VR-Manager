@@ -1,0 +1,25 @@
+{
+  "ssid": "CDT-PRIVE",
+  "scrcpy_presets": {
+    "Quest 3": [
+      "--no-audio",
+      "--angle=20",
+      "--crop=1500:1500:370:200"
+    ],
+    "Quest 2": [
+      "--no-audio",
+      "--crop=1080:900:270:270"
+    ],
+    "Quest": [
+      "--no-audio",
+      "--crop=1080:900:270:270"
+    ],
+    "VR_S3": [
+      "--no-audio",
+      "--crop=1080:1300:270:500"
+    ],
+    "default": [
+      "--no-audio"
+    ]
+  }
+}
