@@ -440,7 +440,7 @@ class USBVRManager:
             for key, value in self.sync_paths.items():
                 writer.writerow([key, value])
     
-    def run_adb_command(self, command, device_id=None, retry_wireless=True):
+    def run_adb_command(self, command, device_id=None, retry_wireless=True, timeout=60):
         """Exécute une commande ADB avec reconnexion auto pour wireless"""
         try:
             if device_id:
@@ -448,7 +448,7 @@ class USBVRManager:
             else:
                 cmd = [self.adb_path] + command
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
             # Si échec et device wireless, tenter reconnexion
             if result.returncode != 0 and retry_wireless and device_id and ":" in device_id:
@@ -457,7 +457,7 @@ class USBVRManager:
                 reconnect_cmd = [self.adb_path, "connect", f"{ip}:5555"]
                 subprocess.run(reconnect_cmd, capture_output=True, text=True, timeout=10)
                 # Réessayer la commande (sans retry pour éviter boucle infinie)
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
             return result.stdout, result.stderr, result.returncode
         except subprocess.TimeoutExpired:
@@ -1436,6 +1436,14 @@ class USBVRManager:
         # Créer une liste triée par nickname (devices enregistrés)
         sorted_devices = sorted(self.devices.items(), key=lambda x: x[1]["nickname"].lower())
 
+        # Collecter les device_ids déjà couverts par self.devices (USB serial + wireless IDs)
+        known_ids = set()
+        for device_id, info in self.devices.items():
+            known_ids.add(device_id)
+            ip_address = info.get("ip_address", "")
+            if ip_address:
+                known_ids.add(f"{ip_address}:5555")
+
         for device_id, info in sorted_devices:
             # Vérifier si connecté en USB ou WiFi
             ip_address = info.get("ip_address", "")
@@ -1837,28 +1845,67 @@ class USBVRManager:
         thread.start()
     
     def _install_apks_thread(self, selected_devices):
-        """Thread pour l'installation des APK"""
+        """Thread pour l'installation des APK (push → vérification taille → pm install)"""
         apk_files = [self.apk_listbox.get(i) for i in range(self.apk_listbox.size())]
-        
+
         total_operations = len(apk_files) * len(selected_devices)
         current_operation = 0
-        
+
         for device_id in selected_devices:
             device_name = self.devices.get(device_id, {}).get("nickname", device_id)
             self.log_message(f"Starting installation on {device_name}")
-            
+
             for apk_file in apk_files:
                 current_operation += 1
                 apk_name = os.path.basename(apk_file)
-                self.log_message(f"[{current_operation}/{total_operations}] Installing {apk_name} on {device_name}...")
-                
-                stdout, stderr, returncode = self.run_adb_command(["install", apk_file], device_id)
-                
-                if returncode == 0:
-                    self.log_message(f"✓ {apk_name} installed successfully on {device_name}")
+                remote_path = f"/data/local/tmp/{apk_name}"
+
+                # Taille locale
+                local_size = os.path.getsize(apk_file)
+                self.log_message(f"[{current_operation}/{total_operations}] Transfert de {apk_name} ({local_size // 1024 // 1024} Mo) vers {device_name}...")
+
+                # Calculer un timeout selon la taille : 60s de base + 1s par Mo (min 120s)
+                size_mb = local_size / (1024 * 1024)
+                push_timeout = max(120, 60 + int(size_mb))
+
+                # Étape 1 : push
+                stdout, stderr, returncode = self.run_adb_command(
+                    ["push", apk_file, remote_path], device_id, timeout=push_timeout)
+
+                if returncode != 0:
+                    self.log_message(f"✗ Échec du transfert de {apk_name} vers {device_name}: {stderr}")
+                    continue
+
+                # Étape 2 : vérifier que la taille du fichier distant correspond
+                stdout, stderr, rc = self.run_adb_command(
+                    ["shell", "stat", "-c", "%s", remote_path], device_id)
+                if rc != 0:
+                    self.log_message(f"✗ Impossible de vérifier la taille distante de {apk_name} sur {device_name}: {stderr}")
+                    self.run_adb_command(["shell", "rm", "-f", remote_path], device_id)
+                    continue
+
+                remote_size = int(stdout.strip()) if stdout.strip().isdigit() else -1
+                if remote_size != local_size:
+                    self.log_message(f"✗ Transfert incomplet de {apk_name} sur {device_name}: "
+                                     f"{remote_size} octets reçus / {local_size} attendus — installation annulée")
+                    self.run_adb_command(["shell", "rm", "-f", remote_path], device_id)
+                    continue
+
+                self.log_message(f"Transfert OK ({remote_size} octets). Installation en cours...")
+
+                # Étape 3 : installer depuis le casque
+                stdout, stderr, returncode = self.run_adb_command(
+                    ["shell", "pm", "install", "-r", remote_path], device_id, timeout=120)
+
+                # Étape 4 : nettoyage du fichier temporaire
+                self.run_adb_command(["shell", "rm", "-f", remote_path], device_id)
+
+                if returncode == 0 and "Success" in stdout:
+                    self.log_message(f"✓ {apk_name} installé avec succès sur {device_name}")
                 else:
-                    self.log_message(f"✗ Failed to install {apk_name} on {device_name}: {stderr}")
-        
+                    error = stdout.strip() or stderr.strip()
+                    self.log_message(f"✗ Échec installation de {apk_name} sur {device_name}: {error}")
+
         self.log_message("Installation process completed!")
 
     # ==================== CASTING METHODS ====================
@@ -2579,6 +2626,8 @@ class USBVRManager:
         # Réinitialiser les options globales
         self.apply_to_all_devices = False
         self.apply_to_all_files = False
+        self.fat32_skipped_files = set()
+        self._fs_cache = {}  # cache filesystem type par device_id
 
         # Synchronisation en arrière-plan
         thread = threading.Thread(target=self._sync_thread, args=(pc_folder, headset_folder, connected_devices))
@@ -2638,12 +2687,27 @@ class USBVRManager:
                         timestamp = datetime.now().strftime("_%Y%m%d_%H%M%S")
                         remote_path = f"{name}{timestamp}{ext}"
                 
+                # Vérifier limite FAT32 (4 Go) avant le push
+                FAT32_LIMIT = 4 * 1024 ** 3
+                if relative_path in self.fat32_skipped_files:
+                    self.log_message(f"⚠ Ignoré (FAT32 >4 Go) : {relative_path}")
+                    continue
+                local_size = os.path.getsize(local_path)
+                if local_size >= FAT32_LIMIT:
+                    fs = self._detect_filesystem(device_id, headset_folder)
+                    if fs == "fat32":
+                        self._warn_fat32_skip(relative_path)
+                        self.log_message(f"⚠ Ignoré (FAT32 >4 Go) : {relative_path}")
+                        continue
+
                 # Créer le dossier de destination si nécessaire
                 remote_dir = '/'.join(remote_path.split('/')[:-1])
                 self.run_adb_command(["shell", "mkdir", "-p", remote_dir], device_id)
-                
-                # Copier le fichier
-                stdout, stderr, returncode = self.run_adb_command(["push", local_path, remote_path], device_id)
+
+                # Copier le fichier (timeout dynamique : 120s min + 1s/Mo)
+                size_mb = os.path.getsize(local_path) / (1024 * 1024)
+                push_timeout = max(120, 60 + int(size_mb))
+                stdout, stderr, returncode = self.run_adb_command(["push", local_path, remote_path], device_id, timeout=push_timeout)
                 
                 if returncode == 0:
                     self.log_message(f"✓ {relative_path} -> {device_name}")
@@ -2652,6 +2716,47 @@ class USBVRManager:
         
         self.log_message("Sync completed!")
     
+    def _detect_filesystem(self, device_id, path):
+        """Retourne 'fat32', 'exfat', ou 'other' pour le FS qui héberge path sur le device."""
+        if device_id in self._fs_cache:
+            return self._fs_cache[device_id]
+        stdout, _, returncode = self.run_adb_command(["shell", "cat", "/proc/mounts"], device_id)
+        fs_type = "other"
+        if returncode == 0:
+            best_len = -1
+            for line in stdout.splitlines():
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mount_point, fstype = parts[1], parts[2].lower()
+                if path.startswith(mount_point) and len(mount_point) > best_len:
+                    best_len = len(mount_point)
+                    if fstype in ("vfat", "fat32", "msdos"):
+                        fs_type = "fat32"
+                    elif fstype in ("exfat", "fuse.exfat"):
+                        fs_type = "exfat"
+                    else:
+                        fs_type = "other"
+        self._fs_cache[device_id] = fs_type
+        return fs_type
+
+    def _warn_fat32_skip(self, filename):
+        """Affiche un avertissement FAT32 (thread principal) et ajoute le fichier aux skips de session."""
+        event = threading.Event()
+
+        def show():
+            messagebox.showwarning(
+                "Fichier trop grand (FAT32)",
+                f"Le fichier suivant dépasse 4 Go et ne peut pas être copié\n"
+                f"sur un volume FAT32 :\n\n{filename}\n\n"
+                f"Il sera ignoré pour tous les casques de cette session."
+            )
+            self.fat32_skipped_files.add(filename)
+            event.set()
+
+        self.root.after(0, show)
+        event.wait()
+
     def _get_headset_files(self, device_id, headset_folder):
         """Obtient la liste des fichiers sur le casque"""
         files = []
